@@ -1,0 +1,3 @@
+[Paths]
+Plugins = @QAU_RUNTIME_DIR@/plugins
+QmlImports = @QAU_RUNTIME_DIR@/qml
