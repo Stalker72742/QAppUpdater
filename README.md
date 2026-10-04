@@ -99,7 +99,18 @@ finder->find(config);
 `startUpdater()` arguments:
 - none — open the updater window;
 - `--install` — install as soon as a newer version is found;
-- `--path <folder or zip> --install` — install a local build.
+- `--path <folder or zip> --install` — install a local build;
+- `--update --report` — install without any window: the updater streams its progress to the app's
+  `AppControlServer` (`updaterStatus`, `updaterFinished` while the app still runs), then closes it, installs and
+  starts it again. Add `--path <folder or zip> --force` for a local build.
+
+Once an install has closed the app, its outcome is saved and the app is started again even if the install failed
+and was rolled back. Read it once at startup to tell the user what happened:
+
+```cpp
+if (auto const result = InstallLayout::takeUpdateResult(InstallLayout::rootDir()))
+    showMessage(result->ok ? "Updated to " + result->version.toString() : result->message);
+```
 
 ## The updater
 
@@ -108,6 +119,7 @@ Updater                          open the window
 Updater --check                  exit code 2 if an update is available
 Updater --update [--force]       install the latest version (closes the running app)
 Updater --path <dir|zip> ...     use a local build for this run
+Updater --update --report        also send progress to the running app (no window anywhere)
 Updater --help                   all options and the updater.json format
 ```
 
@@ -144,7 +156,8 @@ Settings live in `updater.json` next to the exe; the window's "Change source…"
    old package listed and the new one doesn't are renamed aside too, and `package.json` is written last. Any
    failure renames everything back. Renaming works even on the running updater's own exe and DLLs, which is how it
    updates itself; backups it can't delete yet are removed on the next start (`removeLeftovers`).
-7. **Restart** the app, unless `restartApp` is off.
+7. **Restart** the app, unless `restartApp` is off: after a success, and after a rolled-back failure too, so an
+   install never leaves the app closed. The outcome goes to `update/result.json` (`InstallLayout::takeUpdateResult`).
 
 ### The `bin/` layout
 

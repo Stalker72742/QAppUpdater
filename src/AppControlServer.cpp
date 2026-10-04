@@ -2,6 +2,8 @@
 
 #include <QCoreApplication>
 #include <QDebug>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QLocalServer>
 #include <QLocalSocket>
 
@@ -32,10 +34,20 @@ void AppControlServer::onNewConnection()
         socket->flush();
         connect(socket, &QLocalSocket::readyRead, this, [this, socket] {
             while (socket->canReadLine()) {
-                QByteArray const command = socket->readLine().trimmed();
-                qDebug() << "AppControlServer: command" << command;
-                if (command == "quit")
+                QByteArray const line = socket->readLine().trimmed();
+                if (line == "quit") {
+                    qDebug() << "AppControlServer: quit requested";
                     Q_EMIT quitRequested();
+                } else if (line.startsWith("status ")) {
+                    QJsonObject const status = QJsonDocument::fromJson(line.mid(7)).object();
+                    Q_EMIT updaterStatus(status.value(QStringLiteral("stage")).toString(),
+                                         status.value(QStringLiteral("done")).toInteger(),
+                                         status.value(QStringLiteral("total")).toInteger());
+                } else if (line.startsWith("result ")) {
+                    QJsonObject const result = QJsonDocument::fromJson(line.mid(7)).object();
+                    Q_EMIT updaterFinished(result.value(QStringLiteral("ok")).toBool(),
+                                           result.value(QStringLiteral("message")).toString());
+                }
             }
         });
     }

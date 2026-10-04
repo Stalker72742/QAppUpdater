@@ -32,6 +32,11 @@ QStringList readStringList(QString const& path, QString const& key)
     return list;
 }
 
+QString resultPath(QString const& root)
+{
+    return QDir(root).filePath(QAppUpdater::InstallLayout::kWorkDir + QStringLiteral("/result.json"));
+}
+
 QString leftoversPath(QString const& root)
 {
     return QDir(root).filePath(QAppUpdater::InstallLayout::kWorkDir + QStringLiteral("/leftovers.json"));
@@ -189,6 +194,40 @@ QString controlServerName(QString const& root)
     QByteArray const key = QDir::cleanPath(root).toLower().toUtf8();
     return appInfo().name + QLatin1Char('-')
            + QString::fromLatin1(QCryptographicHash::hash(key, QCryptographicHash::Sha1).toHex().left(16));
+}
+
+void writeUpdateResult(QString const& root, UpdateResult const& result)
+{
+    QString const path = resultPath(root);
+    QDir().mkpath(QFileInfo(path).absolutePath());
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly))
+        return;
+    file.write(QJsonDocument(QJsonObject{
+                                 {QStringLiteral("ok"), result.ok},
+                                 {QStringLiteral("message"), result.message},
+                                 {QStringLiteral("version"), result.version.toString()},
+                                 {QStringLiteral("finished"), result.finished.toString(Qt::ISODate)},
+                             })
+                   .toJson());
+    file.commit();
+}
+
+std::optional<UpdateResult> takeUpdateResult(QString const& root)
+{
+    QFile file(resultPath(root));
+    if (!file.open(QIODevice::ReadOnly))
+        return std::nullopt;
+    QJsonObject const object = QJsonDocument::fromJson(file.readAll()).object();
+    file.close();
+    file.remove();
+
+    UpdateResult result;
+    result.ok = object.value(QStringLiteral("ok")).toBool();
+    result.message = object.value(QStringLiteral("message")).toString();
+    result.version = QVersionNumber::fromString(object.value(QStringLiteral("version")).toString());
+    result.finished = QDateTime::fromString(object.value(QStringLiteral("finished")).toString(), Qt::ISODate);
+    return result;
 }
 
 bool startUpdater(QString const& root, QStringList const& arguments, QString* error)

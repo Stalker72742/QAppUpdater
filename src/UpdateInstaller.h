@@ -18,6 +18,9 @@ class QTimer;
 //   (incl. its minUpdaterProtocol) ->
 //   ask the running app to save and quit, wait for it -> replace files -> restart it.
 //
+// Once the app has been closed, the outcome is written for it (InstallLayout::writeUpdateResult) and it is
+// started again whether the install worked or was rolled back, so a failure never leaves it closed.
+//
 // Only files listed in the package's package.json are written, plus files the
 // previously installed package.json listed and the new one doesn't are removed; user data
 // (InstallLayout::isProtectedPath) is never touched. Every replaced file
@@ -63,6 +66,7 @@ private:
     bool m_restartApp{true};
     bool m_running{false};
     bool m_canceled{false};
+    bool m_appClosed{false}; // files are being replaced: the app is not running
 
     QString m_packageDir; // extracted package or the local folder itself
     QStringList m_packageFiles;

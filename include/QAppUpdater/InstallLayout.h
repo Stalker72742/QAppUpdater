@@ -1,15 +1,18 @@
 #pragma once
 
+#include <QDateTime>
 #include <QString>
 #include <QStringList>
 #include <QVersionNumber>
+
+#include <optional>
 
 // What an installed app folder looks like, shared by the app and the updater:
 //
 //   <App>.exe, Updater.exe, bin/...   program files; the exes carry the version (VERSIONINFO)
 //   package.json                      manifest of the package that was installed (PackageManifest)
 //   updater.json                      updater settings (user data)
-//   update/                           updater scratch: downloads, staging, leftovers.json
+//   update/                           updater scratch: downloads, staging, leftovers.json, result.json
 //   logs/ + AppInfo::protectedPaths   user data: never in a package, never touched by updates
 namespace QAppUpdater::InstallLayout {
 
@@ -54,7 +57,21 @@ void addLeftovers(QString const& root, QStringList const& absolutePaths);
 void removeLeftovers(QString const& root);
 
 // QLocalServer name the running app listens on, per install folder. Protocol: the server writes "pid <n>\n"
-// on connect; the client may send "quit\n", which makes the app save everything and exit.
+// on connect; the client may send "quit\n", which makes the app save everything and exit, and (updater --report)
+// "status {\"stage\": ..., \"done\": n, \"total\": n}\n" and "result {\"ok\": ..., \"message\": ...}\n" lines
+// about an install in progress.
+
+// How the last install that closed the app ended, for the app to show when it starts again
+// (it was closed meanwhile, so nobody saw the updater's own message).
+struct UpdateResult {
+    bool ok{false};
+    QString message;
+    QVersionNumber version;
+    QDateTime finished;
+};
+void writeUpdateResult(QString const& root, UpdateResult const& result);
+// Reads and deletes it, so it's shown once.
+std::optional<UpdateResult> takeUpdateResult(QString const& root);
 QString controlServerName(QString const& root);
 
 // Starts the updater from `root` detached and without a console window.

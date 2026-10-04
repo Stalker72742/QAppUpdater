@@ -1,11 +1,15 @@
 // The updater: checks for and installs new versions of the app it was built for. Lives next to the app exe
 // and shares its runtime folder (bin/ by default). With a command it runs as a CLI; without one it opens its
-// window (--install there starts installing as soon as a newer release is found).
+// window (--install there starts installing as soon as a newer release is found). The CLI with --report
+// streams its progress to the running app, which then shows the install instead of a second window.
 
 #include <QApplication>
 #include <QCommandLineParser>
 #include <QDir>
 #include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QLocalSocket>
 #include <QTextStream>
 
 #include <cstring>
@@ -121,6 +125,54 @@ bool applyOverrides(QCommandLineParser const& parser, UpdaterConfig& config)
     return true;
 }
 
+// --report: sends stages, progress and the outcome to the running app over its control server
+// (InstallLayout::controlServerName). Without a running app it stays quiet.
+class AppReporter {
+public:
+    AppReporter()
+        : m_socket(std::make_unique<QLocalSocket>())
+    {
+        m_socket->connectToServer(InstallLayout::controlServerName(InstallLayout::rootDir()));
+        m_socket->waitForConnected(2000);
+    }
+
+    ~AppReporter()
+    {
+        // The last lines must arrive before the process exits.
+        if (m_socket->state() == QLocalSocket::ConnectedState) {
+            m_socket->flush();
+            m_socket->waitForBytesWritten(2000);
+            m_socket->disconnectFromServer();
+        }
+    }
+
+    void status(QString const& stage, qint64 done = 0, qint64 total = 0)
+    {
+        m_stage = stage;
+        send("status", QJsonObject{{QStringLiteral("stage"), stage}, {QStringLiteral("done"), done}, {QStringLiteral("total"), total}});
+    }
+
+    void progress(qint64 done, qint64 total) { status(m_stage, done, total); }
+
+    void result(bool ok, QString const& message)
+    {
+        send("result", QJsonObject{{QStringLiteral("ok"), ok}, {QStringLiteral("message"), message}});
+    }
+
+private:
+    void send(QByteArray const& keyword, QJsonObject const& payload)
+    {
+        // The app closes during an install; what is sent after that goes nowhere, on purpose.
+        if (m_socket->state() != QLocalSocket::ConnectedState)
+            return;
+        m_socket->write(keyword + ' ' + QJsonDocument(payload).toJson(QJsonDocument::Compact) + '\n');
+        m_socket->flush();
+    }
+
+    std::unique_ptr<QLocalSocket> m_socket;
+    QString m_stage;
+};
+
 // Runs the event loop until `done` is called; returns its exit code.
 int runUntilDone(std::function<void(std::function<void(int)> done)> start)
 {
@@ -181,12 +233,19 @@ int runCli(QCommandLineParser& parser, UpdaterConfig config, QString const& conf
           << "Source:    " << config.describeSource() << "\n";
     out().flush();
 
-    return runUntilDone([&](std::function<void(int)> done) {
+    std::shared_ptr<AppReporter> reporter =
+        parser.isSet(QStringLiteral("report")) ? std::make_shared<AppReporter>() : nullptr;
+    if (reporter)
+        reporter->status(QStringLiteral("Looking for the update..."));
+
+    int const code = runUntilDone([&](std::function<void(int)> done) {
         auto* finder = new ReleaseFinder(qApp);
         auto* installer = new UpdateInstaller(qApp);
 
-        QObject::connect(finder, &ReleaseFinder::failed, qApp, [done](QString const& error) {
+        QObject::connect(finder, &ReleaseFinder::failed, qApp, [done, reporter](QString const& error) {
             err() << "Error: " << error << "\n";
+            if (reporter)
+                reporter->result(false, error);
             done(kError);
         });
         QObject::connect(finder, &ReleaseFinder::found, qApp, [=](ReleaseInfo const& release) {
@@ -200,18 +259,24 @@ int runCli(QCommandLineParser& parser, UpdaterConfig config, QString const& conf
             }
             if (!newer && !force) {
                 out() << "Nothing to do (add --force to reinstall).\n";
+                if (reporter)
+                    reporter->result(true, QStringLiteral("%1 is up to date.").arg(appInfo().name));
                 done(kOk);
                 return;
             }
             installer->install(release, config.restartApp);
         });
 
-        QObject::connect(installer, &UpdateInstaller::stageChanged, qApp, [](QString const& stage) {
+        QObject::connect(installer, &UpdateInstaller::stageChanged, qApp, [reporter](QString const& stage) {
             out() << stage << "\n";
             out().flush();
+            if (reporter)
+                reporter->status(stage);
         });
         auto lastStep = std::make_shared<int>(-1);
-        QObject::connect(installer, &UpdateInstaller::progress, qApp, [lastStep](qint64 bytes, qint64 total) {
+        QObject::connect(installer, &UpdateInstaller::progress, qApp, [lastStep, reporter](qint64 bytes, qint64 total) {
+            if (reporter)
+                reporter->progress(bytes, total);
             if (total <= 0)
                 return;
             // One line per 10%.
@@ -222,13 +287,17 @@ int runCli(QCommandLineParser& parser, UpdaterConfig config, QString const& conf
             out() << "  " << step * 10 << "%\n";
             out().flush();
         });
-        QObject::connect(installer, &UpdateInstaller::finished, qApp, [done](bool ok, QString const& message) {
+        QObject::connect(installer, &UpdateInstaller::finished, qApp, [done, reporter](bool ok, QString const& message) {
             (ok ? out() : err()) << message << "\n";
+            // Reaches the app only if it is still running, i.e. the install stopped before closing it.
+            if (reporter)
+                reporter->result(ok, message);
             done(ok ? kOk : kError);
         });
 
         finder->find(config);
     });
+    return code;
 }
 
 } // namespace
@@ -270,6 +339,7 @@ int main(int argc, char* argv[])
         {QStringLiteral("path"), QStringLiteral("Local build folder or package zip for this run (implies --source local)."), QStringLiteral("path")},
         {QStringLiteral("prerelease"), QStringLiteral("Also consider GitHub pre-releases.")},
         {QStringLiteral("no-restart"), QStringLiteral("Don't start the app after installing.")},
+        {QStringLiteral("report"), QStringLiteral("With --update: send progress to the running app, which shows it.")},
         {QStringLiteral("save"), QStringLiteral("Also save the source options given to the settings file.")},
         {QStringLiteral("verbose"), QStringLiteral("Print the log to stderr as well.")},
     });

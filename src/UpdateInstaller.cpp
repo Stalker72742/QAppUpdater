@@ -90,6 +90,7 @@ void UpdateInstaller::install(ReleaseInfo const& release, bool restartApp)
     m_canceled = false;
     m_release = release;
     m_restartApp = restartApp;
+    m_appClosed = false;
     m_packageDir.clear();
     m_packageFiles.clear();
     qInfo().noquote() << "UpdateInstaller: installing" << release.version.toString() << "into" << m_root;
@@ -334,6 +335,7 @@ void UpdateInstaller::apply()
     if (!m_running)
         return; // already finished (failed or canceled): never touch the install
 
+    m_appClosed = true;
     Q_EMIT stageChanged(tr("Installing %1...").arg(m_release.version.toString()));
 
     struct Change {
@@ -439,12 +441,6 @@ void UpdateInstaller::apply()
     qInfo().noquote() << "UpdateInstaller: installed" << m_release.version.toString() << "-" << journal.size()
                       << "files changed," << skipped << "unchanged," << locked.size() << "left for later";
 
-    if (m_restartApp) {
-        if (QProcess::startDetached(root.filePath(appInfo().appExe), {}, m_root))
-            qInfo() << "UpdateInstaller: restarted the app";
-        else
-            qWarning() << "UpdateInstaller: couldn't restart the app";
-    }
     finish(true, tr("%1 %2 is installed.").arg(appInfo().name, m_release.version.toString()));
 }
 
@@ -459,6 +455,18 @@ void UpdateInstaller::finish(bool ok, QString const& message)
     if (!m_running)
         return;
     m_running = false;
+
+    if (m_appClosed) {
+        // Written before the restart, so the app finds it when it starts.
+        InstallLayout::writeUpdateResult(m_root, {ok, message, m_release.version, QDateTime::currentDateTime()});
+        // After a rollback the old version is back in place: start that rather than leave the app closed.
+        if (m_restartApp) {
+            if (QProcess::startDetached(QDir(m_root).filePath(appInfo().appExe), {}, m_root))
+                qInfo() << "UpdateInstaller: restarted the app";
+            else
+                qWarning() << "UpdateInstaller: couldn't restart the app";
+        }
+    }
     Q_EMIT finished(ok, message);
 }
 
