@@ -76,6 +76,12 @@ function(qau_deploy_runtime exes)
         endforeach ()
     endif ()
 
+    # Libraries windeployqt knows nothing about, e.g. a third-party SDK. DLLs among them get into the manifest below.
+    foreach (file ${QAU_EXTRA_RUNTIME_FILES})
+        get_filename_component(name "${file}" NAME)
+        file(COPY_FILE "${file}" "${runtime}/${name}" ONLY_IF_DIFFERENT)
+    endforeach ()
+
     # The exes embed their own qt.conf; one on disk would only add clutter.
     file(REMOVE "${QAU_DEST}/qt.conf")
 

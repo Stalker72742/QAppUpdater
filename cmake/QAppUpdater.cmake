@@ -11,6 +11,7 @@
 #     [PROTECTED_PATHS <name>...]      top-level user data the updater must never touch (e.g. Saved Config)
 #     [QML_DIR <dir>]                  QML sources for windeployqt to scan
 #     [WINDEPLOYQT_ARGS <arg>...]
+#     [RUNTIME_FILES <file>...]
 #     [DIST_DIR <dir>]                 default: <build>/dist
 #     [PACKAGE_DIR <dir>]              default: <build>/packages
 #     [NOTES_FILE <file.md>])          optional release notes put into package.json
@@ -28,7 +29,7 @@ set(QAU_ROOT_DIR "${CMAKE_CURRENT_LIST_DIR}/.." CACHE INTERNAL "")
 function(qau_setup app_target)
     cmake_parse_arguments(PARSE_ARGV 1 arg ""
         "NAME;VERSION;GITHUB_REPO;ICON;ACCENT_COLOR;COMPANY;DESCRIPTION;UPDATER_NAME;RUNTIME_DIR;QML_DIR;DIST_DIR;PACKAGE_DIR;NOTES_FILE"
-        "PROTECTED_PATHS;WINDEPLOYQT_ARGS")
+        "PROTECTED_PATHS;WINDEPLOYQT_ARGS;RUNTIME_FILES")
 
     if (NOT TARGET ${app_target})
         message(FATAL_ERROR "qau_setup: ${app_target} is not a target")
@@ -215,6 +216,7 @@ set(QAU_QML_DIR \"${arg_QML_DIR}\")
 set(QAU_MINGW_BIN \"${mingw_bin}\")
 set(QAU_PROTECTED \"${arg_PROTECTED_PATHS}\")
 set(QAU_WINDEPLOYQT_ARGS \"${arg_WINDEPLOYQT_ARGS}\")
+set(QAU_EXTRA_RUNTIME_FILES \"${arg_RUNTIME_FILES}\")
 set(QAU_NAME \"${QAU_NAME}\")
 set(QAU_VERSION \"${QAU_VERSION}\")
 set(QAU_PROTOCOL \"${QAU_UPDATER_PROTOCOL}\")

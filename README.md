@@ -54,6 +54,7 @@ qau_setup(MyApp NAME MyApp GITHUB_REPO me/MyApp ICON app.ico PROTECTED_PATHS Sav
 | `PROTECTED_PATHS` | — | Top-level user data the updater must never touch, e.g. `Saved Config` |
 | `QML_DIR` | — | QML sources for `windeployqt` to scan |
 | `WINDEPLOYQT_ARGS` | — | Extra `windeployqt` arguments, e.g. `--no-opengl-sw` |
+| `RUNTIME_FILES` | — | Extra files for the runtime folder, e.g. third-party DLLs windeployqt does not know |
 | `DIST_DIR` | `<build>/dist` | Where `<target>_deploy` puts a standalone copy |
 | `PACKAGE_DIR` | `<build>/packages` | Where `<target>_package` puts the zip |
 | `NOTES_FILE` | — | Markdown release notes stored in the package (shown for local builds) |
